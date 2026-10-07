@@ -1,0 +1,14 @@
+# Build output
+server
+*.o
+*.d
+build/
+
+# Debug symbols (macOS)
+*.dSYM/
+
+# Editor / OS junk
+.vscode/
+.idea/
+*.swp
+.DS_Store
