@@ -1,5 +1,3 @@
-#define _POSIX_C_SOURCE 200112L
-
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -8,14 +6,31 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define MYPORT "8080"
+#define BACKLOG 20
+
+int sendall(int sockfd, const void* msg, size_t len, int flags) {
+    size_t bytes_total = 0;
+
+    while (bytes_total < len) {
+        // bytes_sent can be -1 so need signed size_t -- ssize_t
+        ssize_t bytes_sent = send(sockfd, (const char *) msg + bytes_total, len - bytes_total, flags);
+        if (bytes_sent == -1) return -1;
+        bytes_total += bytes_sent;
+    }
+    return 0;
+}
 
 int main(void) {
-    struct sockaddr_storage their_addr;
-    socklen_t addr_size;
     struct addrinfo hints, *res, *p;
-    int sockfd, new_fd, status;
+    int sockfd, status;
+
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) { // SIGPIPE guard
+        perror("signal");
+        return EXIT_FAILURE;
+    } 
 
     // address structs
     memset(&hints, 0, sizeof hints);
@@ -54,4 +69,38 @@ int main(void) {
     }
     freeaddrinfo(res);
 
+    if (listen(sockfd, BACKLOG) == -1) {
+        perror("listen");
+        close(sockfd);
+        return EXIT_FAILURE;
+    }
+
+    for (;;) {
+        struct sockaddr_storage their_addr;
+        socklen_t addr_size = sizeof their_addr;
+        int new_fd;
+
+        
+        if ((new_fd = accept(sockfd, (struct sockaddr*)&their_addr, &addr_size)) == -1) {
+            perror("accept");
+            continue;
+        }
+        
+        ssize_t n;
+        char buf[4096];
+
+        while ((n = recv(new_fd, buf, sizeof buf, 0)) > 0) {
+            if (sendall(new_fd, buf, n, 0) == -1) {
+                perror("send");
+                break;
+            }
+        }
+
+        if (n == -1) {
+            perror("recv");
+        }
+        close(new_fd);
+
+
+    }
 }
