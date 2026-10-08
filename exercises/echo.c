@@ -23,12 +23,20 @@ int sendall(int sockfd, const void* msg, size_t len, int flags) {
     return 0;
 }
 
+void *get_in_addr(struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
 int main(void) {
     struct addrinfo hints, *res, *p;
     int sockfd, status;
 
     if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) { // SIGPIPE guard
-        perror("signal");
+        perror("server: signal");
         return EXIT_FAILURE;
     } 
 
@@ -38,25 +46,27 @@ int main(void) {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if ((status = getaddrinfo(NULL, MYPORT, &hints, &res)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+    status = getaddrinfo(NULL, MYPORT, &hints, &res);
+    if (status != 0) {
+        fprintf(stderr, "server: getaddrinfo: %s\n", gai_strerror(status));
         return EXIT_FAILURE;
     }
 
     // socket loop
     int yes = 1;
     for (p = res; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-            perror("socket");
+        sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (sockfd == -1) {
+            perror("server: socket");
             continue;
         }
         if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes) == -1) {
-            perror("setsockopt");
+            perror("server: setsockopt");
             close(sockfd);
             continue;
         }
         if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            perror("bind");
+            perror("server: bind");
             close(sockfd);
             continue;
         }
@@ -70,7 +80,7 @@ int main(void) {
     freeaddrinfo(res);
 
     if (listen(sockfd, BACKLOG) == -1) {
-        perror("listen");
+        perror("server: listen");
         close(sockfd);
         return EXIT_FAILURE;
     }
@@ -78,12 +88,22 @@ int main(void) {
     for (;;) {
         struct sockaddr_storage their_addr;
         socklen_t addr_size = sizeof their_addr;
-        int new_fd;
+        char s[INET6_ADDRSTRLEN];
 
-        
-        if ((new_fd = accept(sockfd, (struct sockaddr*)&their_addr, &addr_size)) == -1) {
-            perror("accept");
+
+        int new_fd = accept(sockfd, (struct sockaddr*)&their_addr, &addr_size);
+        if (new_fd == -1) {
+            perror("server: accept");
             continue;
+        }
+
+        // print ip connected to server
+        if (inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr),
+            s, sizeof s) == NULL) {
+                perror("server: inet_ntop");
+            } 
+        else {
+            printf("connection from %s\n", s);
         }
         
         ssize_t n;
@@ -91,13 +111,13 @@ int main(void) {
 
         while ((n = recv(new_fd, buf, sizeof buf, 0)) > 0) {
             if (sendall(new_fd, buf, n, 0) == -1) {
-                perror("send");
+                perror("server: send");
                 break;
             }
         }
 
         if (n == -1) {
-            perror("recv");
+            perror("server: recv");
         }
         close(new_fd);
 
