@@ -8,6 +8,18 @@
 #include <unistd.h>
 #include <signal.h>
 
+// The normal procedure for parsing an HTTP message is to read the start-line into a structure, 
+// read each header field line into a hash table by field name until the empty line, 
+// and then use the parsed data to determine if a message body is expected. 
+// If a message body has been indicated, then it is read as a stream until an amount of octets equal to the message body length is read or the connection is closed.
+
+typedef struct header{
+    const char* name;
+    size_t name_len;
+    const char* value;
+    size_t value;
+} header;
+
 #define MYPORT "8080"
 #define BACKLOG 20
 
