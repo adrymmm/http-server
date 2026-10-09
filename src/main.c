@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdbool.h>
 
+#define MAXHEADERS 32
 // The normal procedure for parsing an HTTP message is to read the start-line into a structure, 
 // read each header field line into a hash table by field name until the empty line, 
 // and then use the parsed data to determine if a message body is expected. 
@@ -22,8 +23,18 @@ typedef struct header{
     size_t value_len;
 } header;
 
+
+typedef struct http_request_line {
+    const char* method;
+    size_t method_len;
+    const char* target;
+    size_t target_len;
+    const char* version;
+    size_t version_len;
+} http_request_line;
+
 typedef struct http_request {
-    header headers[32]; // max of 32 headers
+    header headers[MAXHEADERS]; // max of 32 headers
     size_t count;
 } http_request;
 
@@ -44,10 +55,13 @@ enum recv_status {
     RECV_FULL,     
 };
 
+static bool is_digit(unsigned char c) {
+    return c >= '0' && c <= '9';    
+}
 
 static bool is_ctl(unsigned char c) {
     // function expects unsigned char for x86 same reason as istchar
-    return line[j] != '\t' && (line[j] < 0x20 || line[j] == 0x7F);
+    return c != '\t' && (c < 0x20 || c == 0x7F);
 }
 
 static bool is_ows(unsigned char c) {
@@ -59,6 +73,76 @@ static bool is_tchar(unsigned char c) {
     // function expects unsigned char to guard against negative char values
     static const char punct[] = "!#$%&'*+-.^_`|~";
     return isalnum(c) || (memchr(punct, c, sizeof punct - 1) != NULL);
+}
+
+static enum parse_status parse_request(const char* buf, size_t buf_size, http_request *out) {
+    if (out->count < MAXHEADERS) {
+        
+    }
+}
+
+static int parse_request_line(const char* line, size_t len, http_request_line *out) {
+    // request line has method target version
+    
+    //method
+    size_t i, j;
+    for (i = 0; i < len; i++) {
+        if (line[i] == ' ') break;
+        if (!is_tchar(line[i])) {
+            fprintf(stderr, "http: parse_request_line: method uses invalid character 0x%02x at %zu\n", (unsigned char)line[i], i);
+            return -1;
+        } 
+    }
+    if (i == len) {
+        fprintf(stderr, "http: parse_request_line: did not find space between method and target\n");
+        return -1;
+    }
+
+    if (i == 0 ) {
+        fprintf(stderr, "http: parse_request_line: method is empty\n");
+        return -1; 
+    }
+    
+    size_t target_start = i + 1;
+
+    // target
+    for (j = target_start; j < len; j++) {
+        if (line[j] == ' ') break;
+        if (is_ctl(line[j]) || line[j] == '\t') {
+            fprintf(stderr, "http: parse_request_line: target has invalid character 0x%02x at %zu\n", (unsigned char)line[j], j);
+            return -1;
+        }
+    }
+
+    if (j == len) {
+        fprintf(stderr, "http: parse_request_line: did not find space between target and version\n");
+        return -1;
+    }
+
+    if (j == target_start) {
+        fprintf(stderr, "http: parse_request_line: target is empty\n");
+        return -1; 
+    }
+    
+    // version - must be exactly 8 bytes and of the form "HTTP/X.X"
+    size_t version_start = j + 1;
+    if (version_start + 8 != len) {
+        fprintf(stderr, "http: parse_request_line: version is not 8 bytes long\n");
+        return -1;
+    }
+
+    if (!((memcmp(line + version_start, "HTTP/", 5) == 0) && is_digit(line[version_start + 5]) && is_digit(line[version_start + 7]) && line[version_start + 6] == '.')) {
+        fprintf(stderr, "http: parse_request_line: malformed version\n");
+        return -1;
+    }
+
+    out->method = line;
+    out->method_len = i;
+    out->target = line + target_start;
+    out->target_len = j - target_start;
+    out->version = line + version_start;
+    out->version_len = 8;
+    return 0;
 }
 
 static int parse_header_line(const char* line, size_t len, header *out) {
