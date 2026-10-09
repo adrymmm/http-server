@@ -2,11 +2,13 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdbool.h>
 
 // The normal procedure for parsing an HTTP message is to read the start-line into a structure, 
 // read each header field line into a hash table by field name until the empty line, 
@@ -17,11 +19,23 @@ typedef struct header{
     const char* name;
     size_t name_len;
     const char* value;
-    size_t value;
+    size_t value_len;
 } header;
+
+typedef struct http_request {
+    header headers[32]; // max of 32 headers
+    size_t count;
+} http_request;
+
 
 #define MYPORT "8080"
 #define BACKLOG 20
+
+enum parse_status {
+    PARSE_OK,
+    PARSE_SYN,
+    PARSE_TMHEAD,
+};
 
 enum recv_status {
     RECV_OK,       
@@ -30,6 +44,71 @@ enum recv_status {
     RECV_FULL,     
 };
 
+
+static bool is_ctl(unsigned char c) {
+    // function expects unsigned char for x86 same reason as istchar
+    return line[j] != '\t' && (line[j] < 0x20 || line[j] == 0x7F);
+}
+
+static bool is_ows(unsigned char c) {
+    // function expects unsigned char for consistency with istchar
+    return c == ' ' || c == '\t';
+}
+
+static bool is_tchar(unsigned char c) {
+    // function expects unsigned char to guard against negative char values
+    static const char punct[] = "!#$%&'*+-.^_`|~";
+    return isalnum(c) || (memchr(punct, c, sizeof punct - 1) != NULL);
+}
+
+static int parse_header_line(const char* line, size_t len, header *out) {
+    size_t i, j;
+    for (i = 0; i < len; i++) {
+         if (line[i] == ':') {
+            break;
+        }
+        if (!is_tchar(line[i])) {
+            fprintf(stderr, "http: parse_header_line: header name uses invalid character 0x%02x at %zu\n", (unsigned char)line[i], i);
+            return -1;
+        }
+    }
+    
+    if (i == len) {
+        fprintf(stderr, "http: parse_header_line: header name no colon separator\n");
+        return -1; 
+    }
+
+    if (i == 0 ) {
+        fprintf(stderr, "http: parse_header_line: header name has invalid placement of colon separator\n");
+        return -1; 
+    }
+    // name valid, trim leading whitespace
+    j = i + 1;
+    while (j < len && is_ows(line[j])) {
+        j++;
+    }
+    
+    size_t end = j;
+    size_t start = j;
+
+    for (; j < len; j++) {
+        if (is_ctl(line[j])) { 
+            fprintf(stderr, "http: parse_header_line: header value has invalid ctrl sequence 0x%02x at %zu\n", (unsigned char)line[j], j);
+            return -1;
+        }
+        if (is_ows(line[j])) continue; 
+        end = j + 1;
+    }
+
+    out->name = line;
+    out->name_len = i;
+    out->value = line + start;
+    out->value_len = end - start;
+    return 0;
+}
+
+
+        
 static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_t* delim_idx, size_t* final_buf_size) {
     size_t filled = 0;
     ssize_t n = 0;
