@@ -24,12 +24,51 @@ static bool is_tchar(unsigned char c) {
     return isalnum(c) || (memchr(punct, c, sizeof punct - 1) != NULL);
 }
 
-// enum parse_status parse_request(const char* buf, size_t buf_size, http_request *out) {
-//    if (out->count > MAXHEADERS) {
-//
-//        return 400;    
-//    }
-//}
+static int find_crlf(const char *buf, size_t pos, size_t len, size_t *crlf_idx) {
+    // finds first crlf -- should be \r 
+    // *crlf_idx = index of the \r
+
+    for (size_t i = pos; i < len; i++) {
+        if (buf[i] == '\r') {
+            if (i + 1 < len && buf[i + 1] == '\n') {
+                *crlf_idx = i;
+                return 0;
+            }
+            return -1;
+        }
+
+        if (buf[i] == '\n') return -1;
+    }
+    return -1;
+}
+
+enum parse_status parse_request(const char* buf, size_t buf_size, struct http_request *out) {
+    size_t pos = 0, crlf_idx;
+    out->count = 0;
+    int status;
+
+    // request line scan 
+    status = find_crlf(buf, pos, buf_size, &crlf_idx);
+    if (status == -1) return PARSE_BAD_REQUEST;
+    status = parse_request_line(buf, crlf_idx, &out->line);
+    if (status == -1) return PARSE_BAD_REQUEST;
+    
+    pos = crlf_idx + 2; // skip the CRLF
+
+    while (pos < buf_size) {
+        status = find_crlf(buf, pos, buf_size, &crlf_idx);
+        
+        if (status == -1) return PARSE_BAD_REQUEST;
+        if (crlf_idx == pos) return PARSE_OK;
+        if (out->count == MAX_HEADERS) return PARSE_HEADERS_TOO_LARGE;
+
+        status = parse_header_line(buf + pos, crlf_idx - pos, &out->headers[out->count]);
+        if (status == -1) return PARSE_BAD_REQUEST;
+        out->count += 1;
+        pos = crlf_idx + 2;
+    }
+    return PARSE_BAD_REQUEST;
+}
 
 int parse_request_line(const char* line, size_t len, struct http_request_line *out) {
     // request line has method target version

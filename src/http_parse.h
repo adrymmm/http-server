@@ -32,7 +32,8 @@ struct http_request {
     size_t count;
 };
 
-// enum parse_status parse_request(const char* line, size_t len, http_request_line *out);
+// Returns one of three cases (parse_status). On failure may product a partially filled out
+enum parse_status parse_request(const char* buf, size_t buf_size, struct http_request *out);
 
 // Returns 0 on success, -1 on fail
 int parse_request_line(const char* line, size_t len, struct http_request_line *out);
