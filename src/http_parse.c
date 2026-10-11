@@ -45,11 +45,13 @@ static int find_crlf(const char *buf, size_t pos, size_t len, size_t *crlf_idx) 
 enum parse_status parse_request(const char* buf, size_t buf_size, struct http_request *out) {
     size_t pos = 0, crlf_idx;
     out->count = 0;
-    int status;
 
     // request line scan 
-    status = find_crlf(buf, pos, buf_size, &crlf_idx);
-    if (status == -1) return PARSE_BAD_REQUEST;
+    int status = find_crlf(buf, pos, buf_size, &crlf_idx);
+    if (status == -1) {
+        fprintf(stderr, "http: parse_request: request line: does not terminate properly (pos %zu)\n", pos);
+        return PARSE_BAD_REQUEST;
+    } 
     status = parse_request_line(buf, crlf_idx, &out->line);
     if (status == -1) return PARSE_BAD_REQUEST;
     
@@ -58,15 +60,23 @@ enum parse_status parse_request(const char* buf, size_t buf_size, struct http_re
     while (pos < buf_size) {
         status = find_crlf(buf, pos, buf_size, &crlf_idx);
         
-        if (status == -1) return PARSE_BAD_REQUEST;
+        if (status == -1) {
+            fprintf(stderr, "http: parse_request: header line %zu: does not terminate properly (pos %zu)\n", out->count, pos);
+            return PARSE_BAD_REQUEST;
+        } 
+
         if (crlf_idx == pos) return PARSE_OK;
-        if (out->count == MAX_HEADERS) return PARSE_HEADERS_TOO_LARGE;
+        if (out->count == MAX_HEADERS) {
+            fprintf(stderr, "http: parse_request:header line: maximum number of header lines (%d) reached (pos %zu)\n", MAX_HEADERS, pos);
+            return PARSE_HEADERS_TOO_LARGE;
+        } 
 
         status = parse_header_line(buf + pos, crlf_idx - pos, &out->headers[out->count]);
         if (status == -1) return PARSE_BAD_REQUEST;
         out->count += 1;
         pos = crlf_idx + 2;
     }
+    fprintf(stderr, "http: parse_request: no empty line before end of buffer (pos %zu)\n", pos);
     return PARSE_BAD_REQUEST;
 }
 
