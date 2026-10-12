@@ -20,9 +20,14 @@ enum recv_status {
     RECV_FULL,     
 };
 
+static const char resp_400[] = "HTTP/1.1 400 Bad Request\r\n";
+static const char resp_431[] = "HTTP/1.1 431 Request Header Fields Too Large\r\n";
+static const char resp_200[] = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"; 
+
+
 
         
-static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_t* delim_idx, size_t* final_buf_size) {
+static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_t* hdr_len, size_t* final_buf_size) {
     size_t filled = 0;
     ssize_t n = 0;
 
@@ -33,7 +38,7 @@ static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_
             if (buf[i] == '\r' && buf[i+1] == '\n' &&
                     buf[i+2] == '\r' && buf[i+3] == '\n') {
                 // Will return idx one past last \n
-                *delim_idx = i + 4;
+                *hdr_len = i + 4;
                 *final_buf_size = filled;
                 return RECV_OK;
             }
@@ -129,7 +134,7 @@ int main(void) {
     for (;;) {
         struct sockaddr_storage their_addr;
         socklen_t addr_size = sizeof their_addr;
-        char s[INET6_ADDRSTRLEN];
+        char s[INET6_ADDRSTRLEN] = "?";
 
 
         int new_fd = accept(sockfd, (struct sockaddr*)&their_addr, &addr_size);
@@ -142,29 +147,51 @@ int main(void) {
         if (inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr),
                     s, sizeof s) == NULL) {
             perror("server: inet_ntop");
-        } 
-        else {
-            printf("connection from %s\n", s);
         }
 
         char buf[4096];
-        size_t delim_idx, fbufsiz;
+        size_t header_len, fbufsiz;
 
-        enum recv_status rv = recv_delim(new_fd, buf, sizeof buf, &delim_idx, &fbufsiz); 
+        enum recv_status rv = recv_delim(new_fd, buf, sizeof buf, &header_len, &fbufsiz); 
 
         switch (rv) {
-            case RECV_OK:
-                printf("header idx end: %zu\t buffer size: %zu\n", delim_idx, fbufsiz);
-                //parse here
+            case RECV_OK: {
+                struct http_request req = {0};
+                enum parse_status pstatus = parse_request(buf, header_len, &req);
+                switch (pstatus) {
+                    case PARSE_BAD_REQUEST:
+                        fprintf(stderr, "server: %s 400\n", s);
+                        if (sendall(new_fd, resp_400, sizeof resp_400 - 1, 0) == -1) {
+                            perror("server: sendall");
+                        }
+                        break;
+                    case PARSE_HEADERS_TOO_LARGE:
+                        fprintf(stderr, "server: %s 431\n", s);
+                        if (sendall(new_fd, resp_431, sizeof resp_431 - 1, 0) == -1) {
+                            perror("server: sendall");
+                        }
+                        break;
+                    case PARSE_OK:
+                        fprintf(stderr, "server: %s \"%.*s %.*s %.*s\" 200\n", s, (int)req.line.method_len, req.line.method,
+                        (int)req.line.target_len, req.line.target, (int)req.line.version_len, req.line.version);
+                        if (sendall(new_fd, resp_200, sizeof resp_200 - 1, 0) == -1) {
+                            perror("server: sendall");
+                        }
+                        break;
+                }
                 break;
+            }
             case RECV_CLOSED:
-                fprintf(stderr, "server: headers: Connection closed without valid HTTP message.\n");
+                fprintf(stderr, "server: %s closed before end of headers\n", s);
                 break;
             case RECV_ERROR:
+                fprintf(stderr, "server: %s recv error\n", s);
                 break;
             case RECV_FULL:
-                // TODO send 431
-                fprintf(stderr, "server: headers: Buffer limit reached. HTTP could not be parsed.\n");
+                fprintf(stderr, "server: %s 431\n", s);
+                if (sendall(new_fd, resp_431, sizeof resp_431 - 1, 0) == -1) {
+                    perror("server: sendall");
+                }
                 break;
         }
         close(new_fd);
