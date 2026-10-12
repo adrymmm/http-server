@@ -6,20 +6,29 @@ SRC     = $(wildcard src/*.c)
 HDR		= $(wildcard src/*.h)
 BIN     = build/server
 
-TEST_SRC = tests/test_parse.c $(filter-out src/server.c, $(SRC))
-TEST_BIN = build/test_parse
+LIB_SRC = $(filter-out src/server.c, $(SRC))
 
+TEST_PARSE_SRC = tests/test_parse.c
+TEST_PARSE_BIN = build/test_parse
+
+TEST_HANDLER_SRC = tests/test_handler.c
+TEST_HANDLER_BIN = build/test_handler
 
 $(BIN): $(SRC) $(HDR)
 	mkdir -p build
 	$(CC) $(CFLAGS) $(SAN) $(SRC) -o $@
 
-$(TEST_BIN): $(TEST_SRC) $(HDR)
+$(TEST_PARSE_BIN): $(TEST_PARSE_SRC) $(LIB_SRC) $(HDR)
 	mkdir -p build
-	$(CC) $(CFLAGS) $(SAN) -I src $(TEST_SRC) -o $@
+	$(CC) $(CFLAGS) $(SAN) -I src $(TEST_PARSE_SRC) $(LIB_SRC) -o $@
 
-test: $(TEST_BIN)
-	./$(TEST_BIN)
+$(TEST_HANDLER_BIN): $(TEST_HANDLER_SRC) $(LIB_SRC) $(HDR)
+	mkdir -p build
+	$(CC) $(CFLAGS) $(SAN) -I src $(TEST_HANDLER_SRC) $(LIB_SRC) -o $@
+
+test: $(TEST_PARSE_BIN) $(TEST_HANDLER_BIN)
+	./$(TEST_PARSE_BIN)
+	./$(TEST_HANDLER_BIN)
 
 clean:
 	rm -rf build
