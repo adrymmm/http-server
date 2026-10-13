@@ -2,7 +2,6 @@
 #include "http_handler.h"
 #include <stdbool.h>      
 #include <stdio.h>        // fprintf, stderr
-#include <string.h>       // memcpy, memcmp
 #include <stdlib.h>                        
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #define S(lit) (lit), (sizeof(lit) - 1)
@@ -82,7 +81,7 @@ static int run_handler_cases(void) {
         const struct handler_case *c = &hcases[k];
         enum parse_status pstatus = parse_request(c->in, c->in_len, &out);
         if (pstatus != PARSE_OK) {
-            fprintf(stderr, "TODO:FILLTHISIN");
+            fprintf(stderr, "FAIL parse on request: row %zu: parse status %d\n", k, (int)pstatus);
             fails++;
             continue;
         }
