@@ -39,8 +39,12 @@ static const struct handler_case hcases[] = {
         .status = HANDLER_OK },
 
     { S("GET / HTTP/1.1\r\n"
-        "Host: a\r\n"
-        "HOST: b\r\n\r\n"),
+        "hOsT: a\r\n\r\n"),         // Case-insensitive test
+        .status = HANDLER_OK },
+
+    { S("GET / HTTP/1.1\r\n"
+        "host: a\r\n"
+        "Host: b\r\n\r\n"),
         .status = HANDLER_BAD_REQ },
 
     { S("HEAD / HTTP/1.1\r\n"
