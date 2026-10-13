@@ -5,8 +5,8 @@
 #include <string.h>
 #include <strings.h>
 
+// checks string sizes first then return true if they match exactly -- s must be NUL-terminated
 static bool s_reqmatch(const char* target, size_t tlen, const char* s) {
-    // checks if size of string to match is equal to target and then memmcp
     if (tlen == strlen(s)) {
         return memcmp(target, s, tlen) == 0;
     }
