@@ -1,5 +1,6 @@
 
 #include "http_parse.h"
+#include "http_handler.h" 
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 #include <signal.h>
 
+// TODO: Change port with CLI arguments
 #define MYPORT "8080"
 #define BACKLOG 20
 
@@ -20,13 +22,49 @@ enum recv_status {
     RECV_FULL,     
 };
 
-static const char resp_400[] = "HTTP/1.1 400 Bad Request\r\n";
-static const char resp_431[] = "HTTP/1.1 431 Request Header Fields Too Large\r\n";
-static const char resp_200[] = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"; 
+// HTTP errors map to individual module errors one-to-many
+enum http_error {
+    HTTP_400,
+    HTTP_414,
+    HTTP_431,
+    HTTP_501,
+    HTTP_505, 
+};
 
+static const char resp_501[] =
+"HTTP/1.1 501 Not Implemented\r\n"
+"Content-Length: 0\r\n"
+"Connection: close\r\n\r\n";
 
+static const char resp_505[] =
+"HTTP/1.1 505 HTTP Version Not Supported\r\n"
+"Content-Length: 0\r\n"
+"Connection: close\r\n\r\n";
 
-        
+static const char resp_431[] =
+"HTTP/1.1 431 Request Header Fields Too Large\r\n"
+"Content-Length: 0\r\n"
+"Connection: close\r\n\r\n";
+
+static const char resp_414[] =
+"HTTP/1.1 414 URI Too Long\r\n"
+"Content-Length: 0\r\n"
+"Connection: close\r\n\r\n";
+
+static const char resp_400[] =
+"HTTP/1.1 400 Bad Request\r\n"
+"Content-Length: 0\r\n"
+"Connection: close\r\n\r\n";
+
+static const char resp_200[] =
+"HTTP/1.1 200 OK\r\n"
+"Content-Length: 0\r\n"
+"Connection: close\r\n\r\n";
+
+static void send_error(int fd, enum http_error e) {
+    // TODO: Switch over http errors for perror
+}
+
 static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_t* hdr_len, size_t* final_buf_size) {
     size_t filled = 0;
     ssize_t n = 0;
@@ -171,16 +209,62 @@ int main(void) {
                             perror("server: sendall");
                         }
                         break;
-                    case PARSE_OK:
-                        fprintf(stderr, "server: %s \"%.*s %.*s %.*s\" 200\n", s, (int)req.line.method_len, req.line.method,
-                        (int)req.line.target_len, req.line.target, (int)req.line.version_len, req.line.version);
-                        if (sendall(new_fd, resp_200, sizeof resp_200 - 1, 0) == -1) {
-                            perror("server: sendall");
+                    case PARSE_OK: {
+                        enum handler_status hstatus = handle_req(&req);
+                        switch (hstatus) {
+                            case HANDLER_BAD_VER:
+                                fprintf(stderr, "server: %s 505\n", s);
+                                if (sendall(new_fd, resp_505, sizeof resp_505 - 1, 0) == -1) {
+                                    perror("server: sendall");
+                                }
+                                break;
+                            case HANDLER_NOT_IMPL:
+                                fprintf(stderr, "server: %s 501\n", s);
+                                if (sendall(new_fd, resp_501, sizeof resp_501 - 1, 0) == -1) {
+                                    perror("server: sendall");
+                                }
+                                break;
+                            case HANDLER_BAD_REQ:
+                                fprintf(stderr, "server: %s 400\n", s);
+                                if (sendall(new_fd, resp_400, sizeof resp_400 - 1, 0) == -1) {
+                                    perror("server: sendall");
+                                }
+                                break;
+                            case HANDLER_OK: {
+                                char pathbuf[PATH_CAP];
+                                enum path_status pstat = target_to_path(req.line.target, req.line.target_len,
+                                        pathbuf, sizeof pathbuf);
+                                switch (pstat) {
+                                    case PATH_BAD_REQUEST:
+                                        fprintf(stderr, "server: %s 400 (path)\n", s);
+                                        if (sendall(new_fd, resp_400, sizeof resp_400 - 1, 0) == -1) {
+                                            perror("server: sendall");
+                                        }
+                                        break;
+                                    case PATH_URI_TOO_LONG:
+                                        fprintf(stderr, "server: %s 414\n", s);
+                                        if (sendall(new_fd, resp_414, sizeof resp_414 - 1, 0) == -1) {
+                                            perror("server: sendall");
+                                        }
+                                        break;
+                                    case PATH_OK:
+                                        // TODO: Serve 
+                                        fprintf(stderr, "server: %s \"%.*s %.*s\" -> %s 200\n", s,
+                                                (int)req.line.method_len, req.line.method,
+                                                (int)req.line.target_len, req.line.target, pathbuf);
+                                        if (sendall(new_fd, resp_200, sizeof resp_200 - 1, 0) == -1) {
+                                            perror("server: sendall");
+                                        }
+                                        break;
+                                }
+                                break;
+                            }
                         }
                         break;
-                }
+                    }   
+                }      
                 break;
-            }
+            }         
             case RECV_CLOSED:
                 fprintf(stderr, "server: %s closed before end of headers\n", s);
                 break;
@@ -193,7 +277,7 @@ int main(void) {
                     perror("server: sendall");
                 }
                 break;
-        }
+        }        
         close(new_fd);
     }
 }
