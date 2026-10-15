@@ -178,6 +178,9 @@ static void respond(int fd, char* buf, size_t len) {
     }
 
     // if sendall buffer allows we send back 200 response
+    fprintf(stderr, "http: respond: %.*s %.*s -> %s 200\n",
+          (int)req.line.method_len, req.line.method,
+          (int)req.line.target_len, req.line.target, pathbuf);
     if (sendall(fd, resp_200, sizeof resp_200 - 1, 0) == -1) {
         perror("server: sendall");
     }
