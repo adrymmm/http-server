@@ -77,7 +77,6 @@ static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_
                     buf[i+2] == '\r' && buf[i+3] == '\n') {
                 // Will return idx one past last \n
                 *hdr_len = i + 4;
-                *final_buf_size = filled;
                 return RECV_OK;
             }
         }
