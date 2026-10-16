@@ -27,24 +27,37 @@ static bool has_dotseg(const char* path, size_t len) {
     return false;
 }
 
-enum handler_status handle_req(const struct http_request* req) {
+enum handler_status handle_req(const struct http_request* req, enum method *out) {
     if (!s_reqmatch(req->line.version, req->line.version_len, "HTTP/1.1")) {
         return HANDLER_BAD_VER;
     }
-
+    
+    enum method m;
     // Only accept GET and HEAD (case-sensitive)
-    if (!(s_reqmatch(req->line.method, req->line.method_len, "GET") ||
-        s_reqmatch(req->line.method, req->line.method_len, "HEAD"))) {
-        return HANDLER_NOT_IMPL;
+    if (s_reqmatch(req->line.method, req->line.method_len, "GET")) {
+        m = METHOD_GET; 
     }
+    else if (s_reqmatch(req->line.method, req->line.method_len, "HEAD")) {
+       m = METHOD_HEAD; 
+    }
+    else {
+        return HANDLER_NOT_IMPL;
+    } 
+    
+  
     int host_count = 0;
     for (size_t k = 0; k < req->count; k++) {
         if (req->headers[k].name_len == 4 && strncasecmp(req->headers[k].name, "host", 4) == 0)
             host_count += 1;
     }
 
-    // if host found exactly once case-insensitive return OK
-    return host_count == 1 ? HANDLER_OK : HANDLER_BAD_REQ; 
+    // host count needs to be exactly one
+    if (host_count != 1) {
+        return HANDLER_BAD_REQ;
+    }
+    *out = m;
+
+    return HANDLER_OK;
 }
 
 enum path_status target_to_path(const char* target, size_t target_len, char* path, size_t path_cap) {

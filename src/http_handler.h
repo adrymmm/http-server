@@ -5,6 +5,11 @@
 
 struct http_request;
 
+enum method {
+    METHOD_GET,
+    METHOD_HEAD,
+};
+
 enum handler_status {
     HANDLER_OK,          // valid, proceed to serve
     HANDLER_BAD_REQ,     // 400
@@ -19,7 +24,7 @@ enum path_status {
 };
 
 // Checks version->method->host, needs non-NULL req filled by parse_request, after it returns PARSE_OK 
-enum handler_status handle_req(const struct http_request* req);
+enum handler_status handle_req(const struct http_request* req, enum method *out);
 
 /* Builds "www" + target into path; "/"  index.html, query dropped.
  * path is unspecified unless PATH_OK.

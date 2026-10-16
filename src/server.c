@@ -15,6 +15,13 @@
 #define MYPORT "8080"
 #define BACKLOG 20
 
+enum serve_file_status {
+    SERVE_OK,
+    SERVE_NOT_FOUND,
+    SERVE_INTERNAL_ERR,
+    SERVE_ABORT,
+};
+
 enum recv_status {
     RECV_OK,       
     RECV_CLOSED,   
@@ -140,7 +147,9 @@ static void respond(int fd, char* buf, size_t len) {
         case PARSE_OK:
             break;
     }
-    enum handler_status hstatus = handle_req(&req);
+
+    enum method m;
+    enum handler_status hstatus = handle_req(&req, &m);
     switch (hstatus) {
         case HANDLER_BAD_VER:
             fprintf(stderr, "http: respond: unsupported version: %.*s\n",
@@ -193,6 +202,7 @@ static void *get_in_addr(struct sockaddr *sa) {
 
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
+
 
 int main(void) {
     struct addrinfo hints, *res, *p;

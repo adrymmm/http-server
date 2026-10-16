@@ -10,6 +10,7 @@
 struct handler_case {
     const char* in;     size_t in_len;
     enum handler_status status;
+    enum method exp_method;
 };
 
 struct path_case {
@@ -64,49 +65,26 @@ static const struct path_case pcases[] = {
 
 static const struct handler_case hcases[] = {
     { S("GET / HTTP/1.1\r\n"
-            "Host: a\r\n\r\n"),
-    .status = HANDLER_OK },
-
+        "Host: a\r\n\r\n"), .status = HANDLER_OK, .exp_method = METHOD_GET },
     { S("get / HTTP/1.1\r\n"
-            "Host: a\r\n\r\n"),
-    .status = HANDLER_NOT_IMPL },
-
-    { S("get / HTTP/1.1\r\n\r\n"),
-        .status = HANDLER_NOT_IMPL },    
-
+        "Host: a\r\n\r\n"), .status = HANDLER_NOT_IMPL },
+    { S("get / HTTP/1.1\r\n\r\n"), .status = HANDLER_NOT_IMPL },
     { S("GET / HTTP/2.0\r\n"
-            "Host: a\r\n\r\n"),
-    .status = HANDLER_BAD_VER },
-
-    { S("GET / HTTP/1.1\r\n\r\n"),
-        .status = HANDLER_BAD_REQ },
-
-    { S("get / HTTP/2.0\r\n\r\n"),
-        .status = HANDLER_BAD_VER },
-
+        "Host: a\r\n\r\n"), .status = HANDLER_BAD_VER },
+    { S("GET / HTTP/1.1\r\n\r\n"), .status = HANDLER_BAD_REQ },
+    { S("get / HTTP/2.0\r\n\r\n"), .status = HANDLER_BAD_VER },
     { S("GET / HTTP/1.1\r\n"
-            "host: a\r\n\r\n"),         //lowercase
-    .status = HANDLER_OK },
-
+        "host: a\r\n\r\n"), .status = HANDLER_OK, .exp_method = METHOD_GET },   // lowercase
     { S("GET / HTTP/1.1\r\n"
-            "hOsT: a\r\n\r\n"),         // Case-insensitive test
-    .status = HANDLER_OK },
-
+        "hOsT: a\r\n\r\n"), .status = HANDLER_OK, .exp_method = METHOD_GET },   // mixed case
     { S("GET / HTTP/1.1\r\n"
-            "host: a\r\n"
-            "Host: b\r\n\r\n"),
-    .status = HANDLER_BAD_REQ },
-
+        "host: a\r\n"
+        "Host: b\r\n\r\n"), .status = HANDLER_BAD_REQ },
     { S("HEAD / HTTP/1.1\r\n"
-            "Host: a\r\n\r\n"),
-    .status = HANDLER_OK },
-
+        "Host: a\r\n\r\n"), .status = HANDLER_OK, .exp_method = METHOD_HEAD },
     { S("head / HTTP/1.1\r\n"
-            "Host: a\r\n\r\n"),
-    .status = HANDLER_NOT_IMPL },
-
-    { S("GET / HTTP/1.0\r\n\r\n"),
-        .status = HANDLER_BAD_VER },
+        "Host: a\r\n\r\n"), .status = HANDLER_NOT_IMPL },
+    { S("GET / HTTP/1.0\r\n\r\n"), .status = HANDLER_BAD_VER },
 };
 
 static const char* path_get_enum_name(enum path_status s) {
@@ -163,6 +141,16 @@ static int run_path_cases(void) {
     return fails;
 }
 
+static const char *method_name(enum method m) {
+    switch (m) {
+        case METHOD_GET:
+            return "METHOD_GET";
+        case METHOD_HEAD:
+            return "METHOD_HEAD";
+    }
+    return "UNKNOWN";
+}
+
 static int run_handler_cases(void) {
     size_t n = ARRAY_LEN(hcases);
     int fails = 0;
@@ -175,15 +163,22 @@ static int run_handler_cases(void) {
             fails++;
             continue;
         }
-        enum handler_status got = handle_req(&out);
+        enum method mout;
+        enum handler_status got = handle_req(&out, &mout);
         bool status_ok = (got == c->status);
 
         if (!status_ok) {
-            fprintf(stderr, "FAIL status mismatch on request: row %zu: got %s, want %s\n", k, handler_get_enum_name(got), handler_get_enum_name(c->status));
+            fprintf(stderr, "FAIL status mismatch on request: row %zu: got %s, want %s\n",
+                    k, handler_get_enum_name(got), handler_get_enum_name(c->status));
+            fails++;
+        }
+        // mout only written on HANDLER_OK
+        if (status_ok && got == HANDLER_OK && mout != c->exp_method) {
+            fprintf(stderr, "FAIL method mismatch on request: row %zu: got %s, want %s\n",
+                    k, method_name(mout), method_name(c->exp_method));
             fails++;
         }
     }
-
     return fails;
 }
 
