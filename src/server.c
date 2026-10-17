@@ -1,4 +1,3 @@
-
 #include "http_parse.h"
 #include "http_handler.h" 
 #include <arpa/inet.h>
@@ -7,9 +6,12 @@
 #include <netdb.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>      /* open, O_RDONLY, O_CLOEXEC */
+#include <sys/stat.h>   /* fstat, struct stat, S_ISREG */
 
 // TODO: Change port with CLI arguments
 #define MYPORT "8080"
@@ -32,6 +34,8 @@ enum recv_status {
 // HTTP errors map to individual module errors many-to-one
 enum http_error {
     HTTP_400,
+    HTTP_404,
+    HTTP_500,
     HTTP_414,
     HTTP_431,
     HTTP_501,
@@ -80,8 +84,48 @@ static int sendall(int sockfd, const void* msg, size_t len, int flags) {
     return 0;
 }
 
+static enum serve_file_status serve_file(int fd, const char* path, enum method m) {
+    int file_fd = open(path, O_RDONLY);
+    if (file_fd == -1) {
+        int err = errno;
+        // 404 Error Set - EACCES included to prevent users from finding existing paths without permission
+        if (err == EACCES || err == ENOENT || err == ENOTDIR) {
+            fprintf(stderr, "server: serve_file: open encountered error %s for %s\n", strerror(err), path);
+            return SERVE_NOT_FOUND; 
+        }
+        else {
+            fprintf(stderr, "server: serve_file: open encountered error %s for %s\n", strerror(err), path);
+            return SERVE_INTERNAL_ERR;
+        }
+    }
+    struct stat statbuf;
+    if (fstat(file_fd, &statbuf) == -1) {
+        // no need to split on error return since it's only 500 -- can only be server-side issue
+        int err = errno;
+        fprintf(stderr, "server: serve_file: fstat encountered error %s for %s\n", strerror(err), path);
+        close(file_fd);
+        return SERVE_INTERNAL_ERR;
+    }
+
+    // if not regular file return not found
+    if (!S_ISREG(statbuf.st_mode)) {
+        fprintf(stderr, "server: serve_file: %s not a regular file\n", path);
+        close(file_fd);
+        return SERVE_NOT_FOUND;
+    }
+    //TODO: Send header and body
+    close(file_fd);
+    return SERVE_OK;
+}
+
 
 static void send_error(int fd, enum http_error e) {
+   
+    static const char resp_500[] =
+        "HTTP/1.1 500 Internal Server Error\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n\r\n";
+
     static const char resp_501[] =
         "HTTP/1.1 501 Not Implemented\r\n"
         "Content-Length: 0\r\n"
@@ -102,6 +146,11 @@ static void send_error(int fd, enum http_error e) {
         "Content-Length: 0\r\n"
         "Connection: close\r\n\r\n";
 
+    static const char resp_404[] =
+        "HTTP/1.1 404 Not Found\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n\r\n";
+
     static const char resp_400[] =
         "HTTP/1.1 400 Bad Request\r\n"
         "Content-Length: 0\r\n"
@@ -112,8 +161,10 @@ static void send_error(int fd, enum http_error e) {
 
     switch (e) {
         case HTTP_400: msg = resp_400; len = sizeof resp_400 - 1; break;
+        case HTTP_404: msg = resp_404; len = sizeof resp_404 - 1; break;
         case HTTP_414: msg = resp_414; len = sizeof resp_414 - 1; break;
         case HTTP_431: msg = resp_431; len = sizeof resp_431 - 1; break;
+        case HTTP_500: msg = resp_500; len = sizeof resp_500 - 1; break;
         case HTTP_505: msg = resp_505; len = sizeof resp_505 - 1; break;
         case HTTP_501: msg = resp_501; len = sizeof resp_501 - 1; break;
     }
@@ -186,6 +237,19 @@ static void respond(int fd, char* buf, size_t len) {
             break;
     }
 
+    enum serve_file_status srvstatus = serve_file(fd, pathbuf, m);
+    switch (srvstatus) {
+        case SERVE_NOT_FOUND:
+            send_error(fd, HTTP_404);
+            return;
+        case SERVE_INTERNAL_ERR:
+            send_error(fd, HTTP_500);
+            return;
+        case SERVE_ABORT:
+            return;
+        case SERVE_OK:
+            break;
+    }
     // if sendall buffer allows we send back 200 response
     fprintf(stderr, "http: respond: %.*s %.*s -> %s 200\n",
           (int)req.line.method_len, req.line.method,
@@ -202,7 +266,6 @@ static void *get_in_addr(struct sockaddr *sa) {
 
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
-
 
 int main(void) {
     struct addrinfo hints, *res, *p;
