@@ -7,6 +7,11 @@
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #define S(lit) (lit), (sizeof(lit) - 1)
 
+struct ctype_case {
+    const char* in;
+    const char* exp_type;
+};
+
 struct handler_case {
     const char* in;     size_t in_len;
     enum handler_status status;
@@ -18,6 +23,20 @@ struct path_case {
     const char* exp_path;
     enum path_status status;
     size_t cap;
+};
+
+static const struct ctype_case ccases[] = {
+    { "www/index.html",  "text/html; charset=utf-8" },
+    { "www/style.css",   "text/css; charset=utf-8" },
+    { "www/INDEX.HTML",  "text/html; charset=utf-8" },
+    { "www/a.txt",       "text/plain; charset=utf-8" },
+    { "a.txt",           "text/plain; charset=utf-8" },
+    { "www/img/logo.png","image/png" },
+    { "www/readme",      "application/octet-stream" },
+    { "www/v1.2/readme", "application/octet-stream" },
+    { "www/.html",       "application/octet-stream" },
+    { "www/a.",          "application/octet-stream" },
+    { "www/a.tar.gz",    "application/octet-stream" },
 };
 
 static const struct path_case pcases[] = {
@@ -62,6 +81,20 @@ static const struct path_case pcases[] = {
     { S("/"), NULL, .status = PATH_URI_TOO_LONG, .cap = 14 },
 
 };
+
+static int run_ctype_cases(void) {
+    int failures = 0;
+    for (size_t i = 0; i < sizeof ccases / sizeof ccases[0]; i++) {
+        const struct ctype_case *c = &ccases[i];
+        const char *got = content_type(c->in);
+        if (strcmp(got, c->exp_type) != 0) {
+            fprintf(stderr, "content_type row %zu (%s): got \"%s\", want \"%s\"\n",
+                    i, c->in, got, c->exp_type);
+            failures++;
+        }
+    }
+    return failures;
+}
 
 static const struct handler_case hcases[] = {
     { S("GET / HTTP/1.1\r\n"
@@ -184,7 +217,8 @@ static int run_handler_cases(void) {
 
 int main(void) {
     int failures = 0;
-
+    
+    failures += run_ctype_cases();
     failures += run_path_cases();
     failures += run_handler_cases();
     fprintf(stderr, "%d failure(s)\n", failures);
