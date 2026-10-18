@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
@@ -16,6 +17,8 @@
 // TODO: Change port with CLI arguments
 #define MYPORT "8080"
 #define BACKLOG 20
+#define CHUNK_SIZE 8192
+#define HDR_CAP 256
 
 enum serve_file_status {
     SERVE_OK,
@@ -84,7 +87,7 @@ static int sendall(int sockfd, const void* msg, size_t len, int flags) {
     return 0;
 }
 
-static enum serve_file_status serve_file(int fd, const char* path, enum method m) {
+static enum serve_file_status serve_file(int client_fd, const char* path, enum method m) {
     int file_fd = open(path, O_RDONLY);
     if (file_fd == -1) {
         int err = errno;
@@ -113,7 +116,48 @@ static enum serve_file_status serve_file(int fd, const char* path, enum method m
         close(file_fd);
         return SERVE_NOT_FOUND;
     }
-    //TODO: Send header and body
+
+    char hdrbuf[HDR_CAP];
+    int r = snprintf(hdrbuf, sizeof hdrbuf, "HTTP/1.1 200 OK\r\nContent-Length: %jd\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
+            (intmax_t)statbuf.st_size, "application/octet-stream");
+
+   // check for fail and truncaiton 
+    if (r < 0 || (size_t)r >= sizeof hdrbuf) {
+        fprintf(stderr, "server: serve_file: snprintf failed (%s)\n", path);
+        close(file_fd);
+        return SERVE_INTERNAL_ERR;
+
+    }
+
+    if (sendall(client_fd, hdrbuf, (size_t)r, 0) == -1) {
+            fprintf(stderr, "server: serve_file: sendall failed on header (%s): %s\n", path, strerror(errno));
+            close(file_fd);
+            return SERVE_ABORT;
+    }
+
+    if (m == METHOD_HEAD) {
+        close(file_fd);
+        return SERVE_OK;
+    }
+
+    char bdbuf[CHUNK_SIZE];
+    ssize_t n;
+    while((n = read(file_fd, bdbuf, sizeof bdbuf)) > 0) {
+        if(sendall(client_fd, bdbuf, (size_t)n, 0) == -1) {
+            fprintf(stderr, "server: serve_file: send failed mid-body (%s): %s\n",
+                    path, strerror(errno));
+            close(file_fd);
+            return SERVE_ABORT;
+        }
+    }
+
+    if (n == -1) {
+        fprintf(stderr, "server: serve_file: read failed mid-body (%s): %s\n",
+                path, strerror(errno));
+        close(file_fd);
+        return SERVE_ABORT;
+    }
+
     close(file_fd);
     return SERVE_OK;
 }
@@ -181,11 +225,6 @@ static void send_error(int fd, enum http_error e) {
 
 // Tests for errors sequentially parse->handler->path and calls send_error for perror and logs on the server console with fprintf 
 static void respond(int fd, char* buf, size_t len) {
-    static const char resp_200[] =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Length: 0\r\n"
-        "Connection: close\r\n\r\n";
-
     struct http_request req = {0};
     enum parse_status pstatus = parse_request(buf, len, &req);
     switch (pstatus) {
@@ -250,13 +289,10 @@ static void respond(int fd, char* buf, size_t len) {
         case SERVE_OK:
             break;
     }
-    // if sendall buffer allows we send back 200 response
+
     fprintf(stderr, "http: respond: %.*s %.*s -> %s 200\n",
           (int)req.line.method_len, req.line.method,
           (int)req.line.target_len, req.line.target, pathbuf);
-    if (sendall(fd, resp_200, sizeof resp_200 - 1, 0) == -1) {
-        perror("server: sendall");
-    }
 }
 
 static void *get_in_addr(struct sockaddr *sa) {
