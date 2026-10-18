@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -19,6 +20,7 @@
 #define BACKLOG 20
 #define CHUNK_SIZE 8192
 #define HDR_CAP 256
+#define IO_TIMEOUT_SEC 10
 
 enum serve_file_status {
     SERVE_OK,
@@ -31,7 +33,8 @@ enum recv_status {
     RECV_OK,       
     RECV_CLOSED,   
     RECV_ERROR,    
-    RECV_FULL,     
+    RECV_FULL,
+    RECV_TIMEOUT,
 };
 
 // HTTP errors map to individual module errors many-to-one
@@ -45,6 +48,16 @@ enum http_error {
     HTTP_505, 
 };
 
+/* Set send and receive timeouts (IO_TIMEOUT_SEC) on fd.
+   Returns 0, or -1 with errno set. */
+static int set_timeouts(int fd) {
+    struct timeval t = {.tv_sec = IO_TIMEOUT_SEC, .tv_usec = 0};
+    
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &t, sizeof t) == -1) return -1;
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &t, sizeof t) == -1) return -1;
+
+    return 0;
+}
 
 static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_t* hdr_len) {
     size_t filled = 0;
@@ -68,7 +81,9 @@ static enum recv_status recv_delim(int new_fd, char* buf, size_t buf_size, size_
     }
 
     if (n == -1) {
-        perror("server: recv");
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return RECV_TIMEOUT;
+        }
         return RECV_ERROR;
     }
     // exited from filled < buf_size
@@ -360,7 +375,7 @@ int main(void) {
     for (;;) {
         struct sockaddr_storage their_addr;
         socklen_t addr_size = sizeof their_addr;
-        char s[INET6_ADDRSTRLEN] = "?";
+        char ip[INET6_ADDRSTRLEN] = "?";
 
 
         int new_fd = accept(sockfd, (struct sockaddr*)&their_addr, &addr_size);
@@ -368,10 +383,16 @@ int main(void) {
             perror("server: accept");
             continue;
         }
+    
+        if (set_timeouts(new_fd) == -1) {
+            perror("server: setsockopt");
+            close(new_fd);
+            continue;
+        }
 
         // print ip connected to server
         if (inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr),
-                    s, sizeof s) == NULL) {
+                    ip, sizeof ip) == NULL) {
             perror("server: inet_ntop");
         }
 
@@ -385,14 +406,17 @@ int main(void) {
                 respond(new_fd, buf, header_len);
                 break;
             case RECV_CLOSED:
-                fprintf(stderr, "server: %s closed before end of headers\n", s);
+                fprintf(stderr, "server: %s closed before end of headers\n", ip);
                 break;
             case RECV_ERROR:
-                fprintf(stderr, "server: %s recv error\n", s);
+                fprintf(stderr, "server: %s recv: %s\n", ip, strerror(errno));
                 break;
             case RECV_FULL:
-                fprintf(stderr, "server: %s headers exceed buffer\n", s);
+                fprintf(stderr, "server: %s headers exceed buffer\n", ip);
                 send_error(new_fd, HTTP_431);
+                break;
+            case RECV_TIMEOUT:
+                fprintf(stderr, "server: %s recv timeout\n", ip);
                 break;
 
         }
