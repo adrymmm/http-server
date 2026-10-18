@@ -94,3 +94,49 @@ enum path_status target_to_path(const char* target, size_t target_len, char* pat
    return PATH_OK;
 
 }
+
+const char* content_type(const char* path) {
+    // fallback is octet-strem if suffix cannot be determined from table
+    static const char fallback[] = "application/octet-stream";
+
+    struct ext_type {
+        const char *ext;
+        const char *type;
+    };
+
+    static const struct ext_type types[] = {
+        { "html", "text/html; charset=utf-8" },
+        { "css",  "text/css; charset=utf-8" },
+        { "js",   "text/javascript; charset=utf-8" },
+        { "txt",  "text/plain; charset=utf-8" },
+        { "png",  "image/png" },
+        { "jpg",  "image/jpeg" },
+        { "ico",  "image/x-icon" },
+    };
+    
+    // find last slash
+    const char* slash = strrchr(path, '/');
+    
+    // find last dot
+    const char* dot = strrchr(path, '.');
+    
+    // points at file start
+    const char* name = (slash == NULL) ? path : slash + 1;
+
+    // No dot in path means fallback
+    if (dot == NULL) return fallback;
+
+    // Dot is before name e.g. 1.21/minecraft binary -- fallback
+    if (dot < name) return fallback;
+
+    // Dot starts name e.g. /.env -- fallback
+    if (dot == name) return fallback;
+
+    // runs when dot > slash. linear scan over array
+    for (size_t i = 0; i < sizeof types / sizeof types[0]; i++) {
+        if (strcasecmp(types[i].ext, dot + 1) == 0) {
+            return types[i].type;
+        }
+    }
+    return fallback;
+}

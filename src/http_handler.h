@@ -31,4 +31,7 @@ enum handler_status handle_req(const struct http_request* req, enum method *out)
  * target: view, no NUL bytes. */
 enum path_status target_to_path(const char* target, size_t target_len, char* path, size_t path_cap);
 
+// Returns the content type of the file given it has a . prefix
+const char* content_type(const char* path);
+
 #endif
