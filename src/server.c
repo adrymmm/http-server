@@ -119,7 +119,7 @@ static enum serve_file_status serve_file(int client_fd, const char* path, enum m
 
     char hdrbuf[HDR_CAP];
     int r = snprintf(hdrbuf, sizeof hdrbuf, "HTTP/1.1 200 OK\r\nContent-Length: %jd\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
-            (intmax_t)statbuf.st_size, "application/octet-stream");
+            (intmax_t)statbuf.st_size, content_type(path));
 
    // check for fail and truncaiton 
     if (r < 0 || (size_t)r >= sizeof hdrbuf) {
