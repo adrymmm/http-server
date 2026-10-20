@@ -1,0 +1,5 @@
+GET /a/b.html?q=1 HTTP/1.1
+Host: x
+X-A: 1
+X-B:  two 
+
