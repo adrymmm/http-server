@@ -21,6 +21,7 @@
 #define CHUNK_SIZE 8192
 #define HDR_CAP 256
 #define IO_TIMEOUT_SEC 10
+#define DRAIN_CAP (64 * 1024) //64 KB 
 
 enum serve_file_status {
     SERVE_OK,
@@ -47,6 +48,39 @@ enum http_error {
     HTTP_501,
     HTTP_505, 
 };
+
+/* Half-closes fd, drains up to DRAIN_CAP bytes - peer can read
+ * response before teardown, then closes fd. Caller must not close. */
+static void lingering_close(int fd, const char *ip) {
+    // shutdown write side
+    if (shutdown(fd, SHUT_WR) == -1) {
+        fprintf(stderr, "server: %s: shutdown: %s\n", ip, strerror(errno));
+    }
+    // read into scratch buf and discard
+    char scratch[4096];
+    size_t drained = 0;
+    
+    while (drained < DRAIN_CAP) {
+        ssize_t n = recv(fd, scratch, sizeof scratch, 0);
+        // connection closed successfully
+        if (n == 0) {
+            break;
+        }
+        else if (n == -1) {
+            fprintf(stderr, "server: %s: recv: %s\n", ip, strerror(errno));
+            break;
+        }
+        else {
+            drained += (size_t)n;
+        }
+    }
+
+    if (drained >= DRAIN_CAP) {
+        fprintf(stderr, "server: %s: drain cap reached\n", ip);
+    }
+
+    close(fd);
+}
 
 /* Set send and receive timeouts (IO_TIMEOUT_SEC) on fd.
    Returns 0, or -1 with errno set. */
@@ -414,7 +448,8 @@ int main(void) {
             case RECV_FULL:
                 fprintf(stderr, "server: %s headers exceed buffer\n", ip);
                 send_error(new_fd, HTTP_431);
-                break;
+                lingering_close(new_fd, ip);    // lingering close closes fd and continues accept loop
+                continue;
             case RECV_TIMEOUT:
                 fprintf(stderr, "server: %s recv timeout\n", ip);
                 break;
