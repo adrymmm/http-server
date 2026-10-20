@@ -13,6 +13,20 @@ static bool s_reqmatch(const char* target, size_t tlen, const char* s) {
     return false;
 }
 
+// looks for single dot files e.g. .env expects first char to be '/'
+static bool has_hiddenseg(const char* path, size_t len) {
+    size_t start = 0; // index into path
+    while (start < len) {
+        const char *slash = memchr(path + start, '/', len - start);
+        size_t end = (slash != NULL) ? (size_t) (slash - path) : len;
+        if (end > start && path[start] == '.') {
+            return true;
+        }
+        start = end + 1;
+    }
+    return false;
+}
+
 // looks for dot segments "/../" or "/.." expects first char to be '/'
 static bool has_dotseg(const char* path, size_t len) {
     size_t start = 0; // index into path
@@ -68,6 +82,7 @@ enum path_status target_to_path(const char* target, size_t target_len, char* pat
    size_t path_len = (p != NULL) ? (size_t) (p - target) : target_len;
  
    if (has_dotseg(target, path_len)) return PATH_BAD_REQUEST;
+   if (has_hiddenseg(target, path_len)) return PATH_BAD_REQUEST;
 
    static const char base[] = "www";
    static const char idx[] = "index.html";

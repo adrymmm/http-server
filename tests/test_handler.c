@@ -53,11 +53,11 @@ static const struct path_case pcases[] = {
 
     { S("/a..b.html"), "www/a..b.html", .status = PATH_OK },
 
-    { S("/..a"), "www/..a", .status = PATH_OK },
-    
     { S("/docs/"), "www/docs/index.html", .status = PATH_OK },
 
     { S("/index.html?next=/.."), "www/index.html", .status = PATH_OK },
+
+    { S("/a.b/c.html"), "www/a.b/c.html", .status = PATH_OK },
     
     // 400 CASES
 
@@ -74,6 +74,13 @@ static const struct path_case pcases[] = {
     { S("/docs/.."), NULL, .status = PATH_BAD_REQUEST },
 
     { S("/..?x=1"), NULL, .status = PATH_BAD_REQUEST },
+    
+    // 400: hidden segment checks
+    { S("/.env"), NULL, .status = PATH_BAD_REQUEST },
+    
+    { S("/..a"), "www/..a", .status = PATH_BAD_REQUEST  },
+
+    { S("/a/.git/config"), NULL, .status = PATH_BAD_REQUEST },
 
     // 414 Boundary Check
     { S("/"), "www/index.html", .status = PATH_OK, .cap = 15 },
