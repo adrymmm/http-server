@@ -363,7 +363,7 @@ int main(void) {
 
     // address structs
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC; 
+    hints.ai_family = AF_INET;          // IPV4 ONLY; up for revision 
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
