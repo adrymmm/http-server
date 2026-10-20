@@ -12,7 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include <fcntl.h>      /* open, O_RDONLY, O_CLOEXEC */
+#include <fcntl.h>      /* open, O_RDONLY*/
 #include <sys/stat.h>   /* fstat, struct stat, S_ISREG */
 
 // TODO: Change port with CLI arguments
