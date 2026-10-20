@@ -137,7 +137,7 @@ static int sendall(int sockfd, const void* msg, size_t len, int flags) {
 }
 
 static enum serve_file_status serve_file(int client_fd, const char* path, enum method m) {
-    int file_fd = open(path, O_RDONLY);
+    int file_fd = open(path, O_RDONLY | O_NONBLOCK);    // O_NONBLOCK for FIFO guard
     if (file_fd == -1) {
         int err = errno;
         // 404 Error Set - EACCES included to prevent users from finding existing paths without permission
